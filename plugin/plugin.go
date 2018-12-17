@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
 	"text/template"
 )
 
@@ -30,6 +29,8 @@ type (
 		Release            string   `json:"release"`
 		Chart              string   `json:"chart"`
 		Version            string   `json:"version"`
+		EKSCluster         string   `json:"eks_cluster"`
+		EKSRoleARN         string   `json:"eks_role_arn"`
 		Values             string   `json:"values"`
 		StringValues       string   `json:"string_values"`
 		ValuesFiles        string   `json:"values_files"`
@@ -49,6 +50,7 @@ type (
 		HelmRepos          []string `json:"helm_repos"`
 		Purge              bool     `json:"purge"`
 		UpdateDependencies bool     `json:"update_dependencies"`
+		StableRepoURL      string   `json:"stable_repo_url"`
 	}
 	// Plugin default
 	Plugin struct {
@@ -149,7 +151,7 @@ func setHelmCommand(p *Plugin) {
 		setDeleteCommand(p)
 	default:
 		switch os.Getenv("DRONE_BUILD_EVENT") {
-		case "push", "tag", "deployment", "pull_request":
+		case "push", "tag", "deployment", "pull_request", "promote", "rollback":
 			setUpgradeCommand(p)
 		case "delete":
 			setDeleteCommand(p)
@@ -194,6 +196,10 @@ func doHelmRepoAdd(repo string) ([]string, error) {
 func doHelmInit(p *Plugin) []string {
 	init := make([]string, 1)
 	init[0] = "init"
+	if p.Config.StableRepoURL != "" {
+		init = append(init, "--stable-repo-url")
+		init = append(init, p.Config.StableRepoURL)
+	}
 	if p.Config.TillerNs != "" {
 		init = append(init, "--tiller-namespace")
 		init = append(init, p.Config.TillerNs)
@@ -234,8 +240,10 @@ func (p *Plugin) Exec() error {
 		if p.Config.APIServer == "" {
 			return fmt.Errorf("Error: API Server is needed to deploy.")
 		}
-		if p.Config.Token == "" {
-			return fmt.Errorf("Error: Token is needed to deploy.")
+		if p.Config.EKSCluster == "" {
+			if p.Config.Token == "" {
+				return fmt.Errorf("Error: Token is needed to deploy.")
+			}
 		}
 		initialiseKubeconfig(&p.Config, KUBECONFIG, p.Config.KubeConfig)
 	}
@@ -391,6 +399,7 @@ func (p *Plugin) debug() {
 	fmt.Printf("Secrets: %s \n", p.Config.Secrets)
 	fmt.Printf("Helm Repos: %s \n", p.Config.HelmRepos)
 	fmt.Printf("ValuesFiles: %s \n", p.Config.ValuesFiles)
+	fmt.Printf("StableRepoURL: %s \n", p.Config.StableRepoURL)
 	kubeconfig, err := ioutil.ReadFile(KUBECONFIG)
 	if err == nil {
 		fmt.Println(string(kubeconfig))

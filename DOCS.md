@@ -187,6 +187,67 @@ Get the token for the default service account in the default namespace:
 KUBERNETES_TOKEN=$(kubectl get secret $(kubectl get sa default -o jsonpath='{.secrets[].name}{"\n"}') -o jsonpath="{.data.token}" | base64 -D)
 ```
 
+## Deploying to EKS
+
+To deploy to EKS, you should have `api_server` and `kubernetes_certificate` secrets set in drone. If drone is deploying from outside of AWS, you should also have an `aws_access_key_id`, `aws_secret_access_key` secret. An `AWS_DEFAULT_REGION` environmental variable should also be set for the deployment.
+
+### Use the AWS IAM keys for the user who created the EKS cluster (not recommended):
+
+```YAML
+pipeline
+  helm_deploy:
+    image: quay.io/ipedrazas/drone-helm
+    chart: ./charts/my-chart
+    release: ${DRONE_BRANCH}
+    values: image.tag=${DRONE_BRANCH}-${DRONE_COMMIT_SHA:0:7}
+    prefix: STAGING
+    namespace: staging
+    eks_cluster: my-eks-cluster
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+
+    secrets: [ aws_access_key_id, aws_secret_access_key, api_server, kubernetes_certificate ]
+```
+
+### Use role based EKS access
+You must first [configure an IAM Role for cluster access](https://docs.aws.amazon.com/eks/latest/userguide/add-user-role.html) and configure policy to allow an iam user or iam role to assume the new role.
+
+Running drone agent on an ec2 instance that has Role based access to assume the cluster access Role created above:
+```YAML
+pipeline
+  helm_deploy:
+    image: quay.io/ipedrazas/drone-helm
+    chart: ./charts/my-chart
+    release: ${DRONE_BRANCH}
+    values: image.tag=${DRONE_BRANCH}-${DRONE_COMMIT_SHA:0:7}
+    prefix: STAGING
+    namespace: staging
+    eks_cluster: my-eks-cluster
+    eks_role_arn: arn:aws:iam::[ACCOUNT ID HERE]:role/eks-master
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+
+    secrets: [ api_server, kubernetes_certificate ]
+```
+
+Using IAM keys with access to assume the cluster access Role created above:
+```YAML
+pipeline
+  helm_deploy:
+    image: quay.io/ipedrazas/drone-helm
+    chart: ./charts/my-chart
+    release: ${DRONE_BRANCH}
+    values: image.tag=${DRONE_BRANCH}-${DRONE_COMMIT_SHA:0:7}
+    prefix: STAGING
+    namespace: staging
+    eks_cluster: my-eks-cluster
+    eks_role_arn: arn:aws:iam::[ACCOUNT ID HERE]:role/eks-master
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+
+    secrets: [ aws_access_key_id, aws_secret_access_key, api_server, kubernetes_certificate ]
+```
+
 ## Advanced customisations and debugging
 
 This plugin installs [Tiller](https://github.com/kubernetes/helm/blob/master/docs/architecture.md) in the cluster, if you want to specify the namespace where `tiller` ins installed, use the `tiller_ns` attribute.
@@ -218,13 +279,33 @@ pipeline_production:
     release: ${DRONE_BRANCH}
     values: image.tag=${DRONE_BRANCH}-${DRONE_COMMIT_SHA:0:7}
     prefix: STAGING
-    dry-run:true
+    dry-run: true
     when:
       branch: [master]
 ```
+
+This plugin init stable repository in the cluster, if you want to specify the stable repository, use the `stable_repo_url` attribute.
+
+The following example will init `stable_repo_url` in the `https://kubernetes.oss-cn-hangzhou.aliyuncs.com/charts` repo:
+
+```YAML
+pipeline_production:
+  helm_deploy:
+    image: quay.io/ipedrazas/drone-helm
+    skip_tls_verify: true
+    chart: ./charts/my-chart
+    release: ${DRONE_BRANCH}
+    values: image.tag=${DRONE_BRANCH}-${DRONE_COMMIT_SHA:0:7}
+    prefix: PROD
+    stable_repo_url: https://kubernetes.oss-cn-hangzhou.aliyuncs.com/charts
+    when:
+      branch: [master]
+```
+
 
 Happy Helming!
 
 ## Known issues
 
 * Drone secrets that are part of `values` can be leaked in debug mode and in case of error as the whole helm command will be printed in the logs. See #52
+

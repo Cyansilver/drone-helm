@@ -42,6 +42,48 @@ func TestInitialiseKubeconfig(t *testing.T) {
 	if !strings.Contains(kubeConfigStr, "my-cert-data") {
 		t.Errorf("Kubeconfig doesn't render certificate")
 	}
+	if strings.Contains(kubeConfigStr, "aws-iam-authenticator") {
+		t.Errorf("Kubeconfig renders EKS cluster configuration")
+	}
+}
+
+func TestInitialiseKubeconfigEKS(t *testing.T) {
+
+	plugin := Plugin{
+		Config: Config{
+			APIServer:     "http://myapiserver",
+			Certificate:   "my-cert-data",
+			EKSCluster:    "my-eks-cluster-name",
+			EKSRoleARN:    "my-eks-role-arn",
+			HelmCommand:   "",
+			Namespace:     "default",
+			SkipTLSVerify: false, // if set the true with Certificate, this test will fail
+		},
+	}
+
+	configfile := "config3.test"
+	initialiseKubeconfig(&plugin.Config, "../kubeconfig", configfile)
+	data, err := ioutil.ReadFile(configfile)
+	if err != nil {
+		t.Errorf("Error reading file %v", err)
+	}
+	kubeConfigStr := string(data)
+
+	if strings.Contains(kubeConfigStr, "token:") {
+		t.Errorf("Kubeconfig renders token")
+	}
+	if !strings.Contains(kubeConfigStr, "http://myapiserver") {
+		t.Errorf("Kubeconfig doesn't render APIServer")
+	}
+	if !strings.Contains(kubeConfigStr, "my-cert-data") {
+		t.Errorf("Kubeconfig doesn't render certificate")
+	}
+	if !strings.Contains(kubeConfigStr, "my-eks-cluster-name") {
+		t.Errorf("Kubeconfig doesn't render EKS cluster name")
+	}
+	if !strings.Contains(kubeConfigStr, "my-eks-role-arn") {
+		t.Errorf("Kubeconfig doesn't render EKS role ARN")
+	}
 }
 
 func TestGetHelmCommandEmptyPushEvent(t *testing.T) {
@@ -511,5 +553,28 @@ func TestResolveSecretsFallback(t *testing.T) {
 	}
 	if !strings.Contains(plugin.Config.Values, "99999") {
 		t.Errorf("envar ${NOTTOKEN} has not been resolved to 99999, not using prefix")
+	}
+}
+func TestHelmInitByAliyunStableRepo(t *testing.T) {
+	plugin := &Plugin{
+		Config: Config{
+			HelmCommand:   "",
+			Namespace:     "default",
+			SkipTLSVerify: true,
+			Debug:         true,
+			DryRun:        true,
+			Chart:         "./chart/test",
+			Release:       "test-release",
+			Prefix:        "MY",
+			Values:        "image.tag=$TAG,api=${API_SERVER},nameOverride=my-over-app,second.tag=${TAG}",
+			StringValues:  "long_string_value=1234567890",
+			StableRepoURL: "https://kubernetes.oss-cn-hangzhou.aliyuncs.com/charts",
+		},
+	}
+	init := doHelmInit(plugin)
+	result := strings.Join(init, " ")
+	expected := "init --stable-repo-url " + plugin.Config.StableRepoURL
+	if expected != result {
+		t.Error("Helm cannot init for stable repository")
 	}
 }
